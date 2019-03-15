@@ -1,4 +1,4 @@
-package com.shaodianbao.util;
+package com.;
 
 import android.annotation.TargetApi;
 import android.app.Activity;
@@ -19,19 +19,16 @@ import java.util.ArrayList;
 
 /**
  * Created by Jungle on 2019/1/8 0008.
- *
- * @desc 验证是否有权限的帮助类
+ * 1.0.1添加了安装未知来源权限
+ * @version 1.0.1
+ * @author JungleZhang
+ * @Description 验证是否有权限的帮助类
  */
 public class PermissionHelper {
 
-    private ForcePermissionCallbacks mForceCallBack;
-    private NormalPermissionCallbacks mNormalCallBack;
-
-    private Activity mActivity;
-    private String[] permission;
-
     public static final int REQUEST_CODE = 10000;
     public static final int SETTINGS_CODE = 10001;
+    public static final int INSTALL_PERMISS_CODE = 10002;
 
     //需要申请的权限，同组权限原则上只需要申请一个，多个同组权限申请对应一个组权限，一个权限通过全组权限通过，
     //如果有特殊需要，可以修改提示dialog和提示msg对应不同权限
@@ -79,6 +76,12 @@ public class PermissionHelper {
 
     }
 
+    private ForcePermissionCallbacks mForceCallBack;
+    private NormalPermissionCallbacks mNormalCallBack;
+    private InstallAppCallBacks installCallBacks;
+    private Activity mActivity;
+    private String[] permission;
+
     /**
      * 验证权限的帮助类，
      * 使用帮助
@@ -92,6 +95,15 @@ public class PermissionHelper {
     public PermissionHelper(Activity mActivity, @PermissionGroup String... permission) {
         this.mActivity = mActivity;
         this.permission = permission;
+    }
+
+    /**
+     * 1. 8.0以上版本申请安装未知来源apk，需要添加权限 <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES"/>
+     * 2. onActivityResult 方法调用 {@link #bindActivityResult(int, int, Intent)}
+     * 3. {@link #checkInstallPackage(InstallAppCallBacks)} 使用该方法发起验证，使用回调判断
+     */
+    public PermissionHelper(Activity mActivity) {
+        this.mActivity = mActivity;
     }
 
     /**
@@ -130,6 +142,19 @@ public class PermissionHelper {
             }
         } else {
             mNormalCallBack.onPermissionsSuccess();
+        }
+    }
+
+
+    public void checkInstallPackage(InstallAppCallBacks callBacks) {
+        installCallBacks = callBacks;
+        //只有8.0以上的手机需要验证，如果不是直接返回成功
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && !mActivity.getPackageManager().canRequestPackageInstalls()) {
+            Uri packageURI = Uri.parse("package:" + mActivity.getPackageName());
+            Intent intent = new Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES, packageURI);
+            mActivity.startActivityForResult(intent, INSTALL_PERMISS_CODE);
+        } else {
+            callBacks.onSuccess();
         }
     }
 
@@ -226,10 +251,28 @@ public class PermissionHelper {
         }
     }
 
+    /**
+     * 绑定 onActivityResult()使用
+     * @param requestCode
+     * @param resultCode
+     * @param data
+     */
     public void bindActivityResult(int requestCode, int resultCode, Intent data) {
-        if (SETTINGS_CODE == requestCode) {
-            //返回后再次检查申请的权限是否被用户打开了
-            checkPermissionForce(mForceCallBack);
+        switch (requestCode) {
+            case INSTALL_PERMISS_CODE:// 安装位置应用权限
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && installCallBacks != null) {
+                    if (mActivity.getPackageManager().canRequestPackageInstalls()) {
+                        installCallBacks.onSuccess();
+                    } else {
+                        installCallBacks.onFailed();
+                    }
+                }
+                break;
+            case SETTINGS_CODE: //返回后再次检查申请的权限是否被用户打开了
+                checkPermissionForce(mForceCallBack);
+                break;
+            default:
+                break;
         }
     }
 
@@ -238,8 +281,10 @@ public class PermissionHelper {
 
         //权限全部通过才回调
         void onPermissionsAllGranted();
+
         //权限部分通过
         void onPermissionsGrantedPart(ArrayList<String> grantedPermission);
+
         //权限部分拒绝
         void onPermissionsDeniedPart(ArrayList<String> deniedPermission);
     }
@@ -250,6 +295,12 @@ public class PermissionHelper {
 
         //被拒绝的权限
         void onPermissionsFailed();
+    }
+
+    public interface InstallAppCallBacks {
+        void onSuccess();
+
+        void onFailed();
     }
 
     private String tableOfComparisons4Permission(String permission) {
